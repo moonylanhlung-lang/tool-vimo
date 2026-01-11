@@ -1,0 +1,25 @@
+import json
+from datetime import datetime
+
+LOG_FILE = "resend_logs.json"
+
+def save_log(user, merchant_email, subject):
+    log = {
+        "time": datetime.utcnow().isoformat(),
+        "user": user,
+        "merchant_email": merchant_email,
+        "subject": subject
+    }
+
+    logs = []
+    if os.path.exists(LOG_FILE):
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            try:
+                logs = json.load(f)
+            except:
+                logs = []
+
+    logs.append(log)
+
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(logs, f, ensure_ascii=False, indent=2)
