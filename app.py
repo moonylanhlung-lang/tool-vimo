@@ -83,7 +83,15 @@ def send_telegram_alert(message):
         )
     except Exception as e:
         log_print("TELEGRAM ERROR:", e)
-
+def alert_single_resend(user, merchant_email, subject):
+    msg = (
+        "📨 <b>RESEND EMAIL</b>\n\n"
+        f"👤 User: {user}\n"
+        f"📧 Merchant: {merchant_email}\n"
+        f"📝 Subject: {subject}\n\n"
+        f"⏱ {datetime.utcnow().strftime('%H:%M:%S %d/%m/%Y')}"
+    )
+    send_telegram_alert(msg)
 def check_resend_alert():
     global last_alert_time
 
@@ -214,11 +222,14 @@ def resend():
         subject, body = get_email_body_by_id(email_id)
         send_gmail_api(merchant_email, subject, body)
 
+        # save_log("admin", merchant_email, subject)
+        # check_resend_alert()
         save_log("admin", merchant_email, subject)
+        # 🔔 ALERT NGAY
+        alert_single_resend("admin", merchant_email, subject)
+        # (nếu vẫn muốn giữ alert theo ngưỡng)
         check_resend_alert()
-
         return jsonify({"status": "success"})
-
     except Exception as e:
         log_print("RESEND ERROR:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -238,9 +249,13 @@ def auto_resend():
         subject, body = get_email_body_by_id(latest["id"])
         send_gmail_api(merchant_email, subject, body)
 
+        # save_log("admin", merchant_email, subject)
+        # check_resend_alert()
         save_log("admin", merchant_email, subject)
-        check_resend_alert()
+        # 🔔 ALERT NGAY
+        alert_single_resend("admin", merchant_email, subject)
 
+        check_resend_alert()
         return jsonify({"status": "success", "resent_subject": subject})
 
     except Exception as e:
