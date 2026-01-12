@@ -29,6 +29,7 @@ LOG_FILE = "resend_logs.json"
 ALERT_EVERY_RESEND = os.getenv("ALERT_EVERY_RESEND", "false").lower() == "true"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+log_print("ALERT_EVERY_RESEND =", ALERT_EVERY_RESEND)
 
 ALERT_LIMIT = int(os.getenv("ALERT_RESEND_LIMIT", 5))
 ALERT_WINDOW = int(os.getenv("ALERT_WINDOW_MINUTES", 10))
@@ -108,6 +109,7 @@ def send_telegram_alert(message):
 #     )
 #     send_telegram_alert(msg)
 def alert_single_resend(user, merchant_email, subject):
+    log_print("📤 SENDING TELEGRAM ALERT...")
     msg = (
         "📨 <b>RESEND EMAIL</b>\n\n"
         f"👤 User: {user}\n"
@@ -234,7 +236,7 @@ def search():
         return jsonify([])
     return jsonify(search_inbox_by_merchant(merchant_email))
 
-@app.route("/resend", methods=["POST"])
+# @app.route("/resend", methods=["POST"])
 # def resend():
 #     try:
 #         email_id = request.form.get("email_id")
@@ -282,6 +284,7 @@ def resend():
 
         # 🔔 ALERT MỖI RESEND
         if ALERT_EVERY_RESEND:
+            log_print("🔥 ALERT_EVERY_RESEND ENABLED")
             alert_single_resend("admin", merchant_email, subject)
 
         # ⚠️ ALERT THEO NGƯỠNG (nếu cần)
@@ -296,9 +299,8 @@ def resend():
             "message": str(e)
         }), 500
 
-
-@app.route("/auto-resend", methods=["POST"])
-# def auto_resend():
+# @app.route("/auto-resend", methods=["POST"])
+# # def auto_resend():
 #     try:
 #         merchant_email = request.form.get("merchant_email")
 #         if not merchant_email:
