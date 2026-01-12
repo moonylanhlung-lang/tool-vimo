@@ -26,9 +26,9 @@ GMAIL_TOKEN = os.getenv("GMAIL_TOKEN")
 LOG_FILE = "resend_logs.json"
 
 # ===== TELEGRAM ALERT CONFIG =====
-
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+ALERT_EVERY_RESEND = os.getenv("ALERT_EVERY_RESEND", "false").lower() == "true"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 ALERT_LIMIT = int(os.getenv("ALERT_RESEND_LIMIT", 5))
 ALERT_WINDOW = int(os.getenv("ALERT_WINDOW_MINUTES", 10))
@@ -68,27 +68,51 @@ def save_log(user, merchant_email, subject):
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         json.dump(logs, f, ensure_ascii=False, indent=2)
 
+# def send_telegram_alert(message):
+#     if not BOT_TOKEN or not CHAT_ID:
+#         return
+#     try:
+#         requests.post(
+#             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+#             json={
+#                 "chat_id": CHAT_ID,
+#                 "text": message,
+#                 "parse_mode": "HTML"
+#             },
+#             timeout=5
+#         )
+#     except Exception as e:
+#         log_print("TELEGRAM ERROR:", e)
 def send_telegram_alert(message):
-    if not BOT_TOKEN or not CHAT_ID:
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"
+    }
+
     try:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": CHAT_ID,
-                "text": message,
-                "parse_mode": "HTML"
-            },
-            timeout=5
-        )
+        requests.post(url, json=payload, timeout=5)
     except Exception as e:
         log_print("TELEGRAM ERROR:", e)
+# def alert_single_resend(user, merchant_email, subject):
+#     msg = (
+#         "📨 <b>RESEND EMAIL</b>\n\n"
+#         f"👤 User: {user}\n"
+#         f"📧 Merchant: {merchant_email}\n"
+#         f"📝 Subject: {subject}\n\n"
+#         f"⏱ {datetime.utcnow().strftime('%H:%M:%S %d/%m/%Y')}"
+#     )
+#     send_telegram_alert(msg)
 def alert_single_resend(user, merchant_email, subject):
     msg = (
         "📨 <b>RESEND EMAIL</b>\n\n"
         f"👤 User: {user}\n"
         f"📧 Merchant: {merchant_email}\n"
-        f"📝 Subject: {subject}\n\n"
+        f"📝 Subject: {subject}\n"
         f"⏱ {datetime.utcnow().strftime('%H:%M:%S %d/%m/%Y')}"
     )
     send_telegram_alert(msg)
@@ -211,56 +235,142 @@ def search():
     return jsonify(search_inbox_by_merchant(merchant_email))
 
 @app.route("/resend", methods=["POST"])
+# def resend():
+#     try:
+#         email_id = request.form.get("email_id")
+#         merchant_email = request.form.get("merchant_email")
+
+#         if not email_id or not merchant_email:
+#             return jsonify({"status": "error", "message": "Missing params"}), 400
+
+#         subject, body = get_email_body_by_id(email_id)
+#         send_gmail_api(merchant_email, subject, body)
+
+#         # # save_log("admin", merchant_email, subject)
+#         # # check_resend_alert()
+#         # save_log("admin", merchant_email, subject)
+#         # # 🔔 ALERT NGAY
+#         # alert_single_resend("admin", merchant_email, subject)
+#         # # (nếu vẫn muốn giữ alert theo ngưỡng)
+#         # check_resend_alert()
+#         return jsonify({"status": "success"})
+#     except Exception as e:
+#         log_print("RESEND ERROR:", e)
+#         return jsonify({"status": "error", "message": str(e)}), 500
+@app.route("/resend", methods=["POST"])
 def resend():
     try:
         email_id = request.form.get("email_id")
         merchant_email = request.form.get("merchant_email")
 
         if not email_id or not merchant_email:
-            return jsonify({"status": "error", "message": "Missing params"}), 400
+            return jsonify({
+                "status": "error",
+                "message": "Missing email_id or merchant_email"
+            }), 400
 
         subject, body = get_email_body_by_id(email_id)
-        send_gmail_api(merchant_email, subject, body)
 
-        # save_log("admin", merchant_email, subject)
-        # check_resend_alert()
+        send_gmail_api(
+            to_email=merchant_email,
+            subject=subject,
+            html_body=body
+        )
+
+        # 📝 LOG
         save_log("admin", merchant_email, subject)
-        # 🔔 ALERT NGAY
-        alert_single_resend("admin", merchant_email, subject)
-        # (nếu vẫn muốn giữ alert theo ngưỡng)
+
+        # 🔔 ALERT MỖI RESEND
+        if ALERT_EVERY_RESEND:
+            alert_single_resend("admin", merchant_email, subject)
+
+        # ⚠️ ALERT THEO NGƯỠNG (nếu cần)
         check_resend_alert()
+
         return jsonify({"status": "success"})
+
     except Exception as e:
         log_print("RESEND ERROR:", e)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
+
+@app.route("/auto-resend", methods=["POST"])
+# def auto_resend():
+#     try:
+#         merchant_email = request.form.get("merchant_email")
+#         if not merchant_email:
+#             return jsonify({"status": "error", "message": "Missing merchant_email"}), 400
+
+#         emails = search_inbox_by_merchant(merchant_email)
+#         if not emails:
+#             return jsonify({"status": "error", "message": "Không tìm thấy email"})
+
+#         latest = emails[-1]
+#         subject, body = get_email_body_by_id(latest["id"])
+#         send_gmail_api(merchant_email, subject, body)
+
+#         # save_log("admin", merchant_email, subject)
+#         # check_resend_alert()
+#         save_log("admin", merchant_email, subject)
+#         # 🔔 ALERT NGAY
+#         alert_single_resend("admin", merchant_email, subject)
+
+#         check_resend_alert()
+#         return jsonify({"status": "success", "resent_subject": subject})
+
+#     except Exception as e:
+#         log_print("AUTO RESEND ERROR:", e)
+#         return jsonify({"status": "error", "message": str(e)}), 500
 @app.route("/auto-resend", methods=["POST"])
 def auto_resend():
     try:
         merchant_email = request.form.get("merchant_email")
         if not merchant_email:
-            return jsonify({"status": "error", "message": "Missing merchant_email"}), 400
+            return jsonify({
+                "status": "error",
+                "message": "Missing merchant_email"
+            }), 400
 
         emails = search_inbox_by_merchant(merchant_email)
         if not emails:
-            return jsonify({"status": "error", "message": "Không tìm thấy email"})
+            return jsonify({
+                "status": "error",
+                "message": "Không tìm thấy email"
+            })
 
         latest = emails[-1]
         subject, body = get_email_body_by_id(latest["id"])
-        send_gmail_api(merchant_email, subject, body)
 
-        # save_log("admin", merchant_email, subject)
-        # check_resend_alert()
+        send_gmail_api(
+            to_email=merchant_email,
+            subject=subject,
+            html_body=body
+        )
+
+        # 📝 LOG
         save_log("admin", merchant_email, subject)
-        # 🔔 ALERT NGAY
-        alert_single_resend("admin", merchant_email, subject)
 
+        # 🔔 ALERT MỖI RESEND
+        if ALERT_EVERY_RESEND:
+            alert_single_resend("admin", merchant_email, subject)
+
+        # ⚠️ ALERT THEO NGƯỠNG
         check_resend_alert()
-        return jsonify({"status": "success", "resent_subject": subject})
+
+        return jsonify({
+            "status": "success",
+            "resent_subject": subject
+        })
 
     except Exception as e:
         log_print("AUTO RESEND ERROR:", e)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 @app.route("/logs")
 def logs():
