@@ -4,14 +4,14 @@ import base64
 import pickle
 import imaplib
 import email
-from datetime import datetime
+import requests
+from datetime import datetime, timedelta
 
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 
 from email.header import decode_header
 from email.mime.text import MIMEText
-
 from googleapiclient.discovery import build
 
 # ================= CONFIG =================
@@ -25,6 +25,16 @@ GMAIL_TOKEN = os.getenv("GMAIL_TOKEN")
 
 LOG_FILE = "resend_logs.json"
 
+# ===== TELEGRAM ALERT CONFIG =====
+
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+ALERT_LIMIT = int(os.getenv("ALERT_RESEND_LIMIT", 5))
+ALERT_WINDOW = int(os.getenv("ALERT_WINDOW_MINUTES", 10))
+
+last_alert_time = None
+
 # ================= APP =================
 
 app = Flask(__name__)
@@ -36,26 +46,76 @@ CORS(app, supports_credentials=True)
 def log_print(*args):
     print("🔹", *args, flush=True)
 
+def load_logs():
+    if not os.path.exists(LOG_FILE):
+        return []
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return []
+
 def save_log(user, merchant_email, subject):
-    log = {
+    logs = load_logs()
+
+    logs.append({
         "time": datetime.utcnow().isoformat(),
         "user": user,
         "merchant_email": merchant_email,
         "subject": subject
-    }
-
-    logs = []
-    if os.path.exists(LOG_FILE):
-        try:
-            with open(LOG_FILE, "r", encoding="utf-8") as f:
-                logs = json.load(f)
-        except:
-            logs = []
-
-    logs.append(log)
+    })
 
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         json.dump(logs, f, ensure_ascii=False, indent=2)
+
+def send_telegram_alert(message):
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": CHAT_ID,
+                "text": message,
+                "parse_mode": "HTML"
+            },
+            timeout=5
+        )
+    except Exception as e:
+        log_print("TELEGRAM ERROR:", e)
+
+def check_resend_alert():
+    global last_alert_time
+
+    now = datetime.utcnow()
+    window_start = now - timedelta(minutes=ALERT_WINDOW)
+
+    if last_alert_time and last_alert_time > window_start:
+        return
+
+    logs = load_logs()
+    recent = [
+        l for l in logs
+        if datetime.fromisoformat(l["time"]) >= window_start
+    ]
+
+    if len(recent) >= ALERT_LIMIT:
+        merchants = {}
+        for l in recent:
+            merchants[l["merchant_email"]] = merchants.get(l["merchant_email"], 0) + 1
+
+        msg = (
+            "⚠️ <b>CẢNH BÁO RESEND</b>\n\n"
+            f"🔁 <b>{len(recent)}</b> resend trong {ALERT_WINDOW} phút\n\n"
+            "📧 Merchant:\n"
+        )
+        for m, c in merchants.items():
+            msg += f"• {m}: {c}\n"
+
+        msg += f"\n⏱ {now.strftime('%H:%M:%S %d/%m/%Y')}"
+
+        send_telegram_alert(msg)
+        last_alert_time = now
 
 # ================= GMAIL =================
 
@@ -140,9 +200,7 @@ def search():
     merchant_email = request.form.get("merchant_email")
     if not merchant_email:
         return jsonify([])
-
-    results = search_inbox_by_merchant(merchant_email)
-    return jsonify(results)
+    return jsonify(search_inbox_by_merchant(merchant_email))
 
 @app.route("/resend", methods=["POST"])
 def resend():
@@ -151,90 +209,47 @@ def resend():
         merchant_email = request.form.get("merchant_email")
 
         if not email_id or not merchant_email:
-            return jsonify({
-                "status": "error",
-                "message": "Missing email_id or merchant_email"
-            }), 400
+            return jsonify({"status": "error", "message": "Missing params"}), 400
 
         subject, body = get_email_body_by_id(email_id)
+        send_gmail_api(merchant_email, subject, body)
 
-        send_gmail_api(
-            to_email=merchant_email,
-            subject=subject,
-            html_body=body
-        )
-
-        save_log(
-            user="admin",
-            merchant_email=merchant_email,
-            subject=subject
-        )
+        save_log("admin", merchant_email, subject)
+        check_resend_alert()
 
         return jsonify({"status": "success"})
 
     except Exception as e:
         log_print("RESEND ERROR:", e)
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/auto-resend", methods=["POST"])
 def auto_resend():
     try:
         merchant_email = request.form.get("merchant_email")
         if not merchant_email:
-            return jsonify({
-                "status": "error",
-                "message": "Missing merchant_email"
-            }), 400
+            return jsonify({"status": "error", "message": "Missing merchant_email"}), 400
 
         emails = search_inbox_by_merchant(merchant_email)
         if not emails:
-            return jsonify({
-                "status": "error",
-                "message": "Không tìm thấy email"
-            })
+            return jsonify({"status": "error", "message": "Không tìm thấy email"})
 
         latest = emails[-1]
         subject, body = get_email_body_by_id(latest["id"])
+        send_gmail_api(merchant_email, subject, body)
 
-        send_gmail_api(
-            to_email=merchant_email,
-            subject=subject,
-            html_body=body
-        )
+        save_log("admin", merchant_email, subject)
+        check_resend_alert()
 
-        save_log(
-            user="admin",
-            merchant_email=merchant_email,
-            subject=subject
-        )
-
-        return jsonify({
-            "status": "success",
-            "resent_subject": subject
-        })
+        return jsonify({"status": "success", "resent_subject": subject})
 
     except Exception as e:
         log_print("AUTO RESEND ERROR:", e)
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route("/logs", methods=["GET"])
+@app.route("/logs")
 def logs():
-    try:
-        if not os.path.exists(LOG_FILE):
-            return jsonify([])
-
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            return jsonify(json.load(f))
-
-    except Exception as e:
-        log_print("LOG ERROR:", e)
-        return jsonify([]), 500
+    return jsonify(load_logs())
 
 # ================= RUN =================
 
