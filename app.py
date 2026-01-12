@@ -84,8 +84,24 @@ def save_log(user, merchant_email, subject):
 #         )
 #     except Exception as e:
 #         log_print("TELEGRAM ERROR:", e)
+# def send_telegram_alert(message):
+#     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+#         return
+
+#     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+#     payload = {
+#         "chat_id": TELEGRAM_CHAT_ID,
+#         "text": message,
+#         "parse_mode": "HTML"
+#     }
+
+#     try:
+#         requests.post(url, json=payload, timeout=5)
+#     except Exception as e:
+#         log_print("TELEGRAM ERROR:", e)
 def send_telegram_alert(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        log_print("❌ TELEGRAM CONFIG MISSING")
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -96,18 +112,13 @@ def send_telegram_alert(message):
     }
 
     try:
-        requests.post(url, json=payload, timeout=5)
+        r = requests.post(url, json=payload, timeout=10)
+
+        log_print("📨 TELEGRAM STATUS:", r.status_code)
+        log_print("📨 TELEGRAM RESPONSE:", r.text)
+
     except Exception as e:
-        log_print("TELEGRAM ERROR:", e)
-# def alert_single_resend(user, merchant_email, subject):
-#     msg = (
-#         "📨 <b>RESEND EMAIL</b>\n\n"
-#         f"👤 User: {user}\n"
-#         f"📧 Merchant: {merchant_email}\n"
-#         f"📝 Subject: {subject}\n\n"
-#         f"⏱ {datetime.utcnow().strftime('%H:%M:%S %d/%m/%Y')}"
-#     )
-#     send_telegram_alert(msg)
+        log_print("❌ TELEGRAM EXCEPTION:", str(e))
 def alert_single_resend(user, merchant_email, subject):
     log_print("📤 SENDING TELEGRAM ALERT...")
     msg = (
