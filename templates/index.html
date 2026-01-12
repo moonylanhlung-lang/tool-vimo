@@ -113,6 +113,33 @@ button[disabled] {
     margin-bottom:8px;
     font-size:13px;
 }
+.stat-box {
+    background:#fff;
+    padding:20px;
+    border-radius:14px;
+    box-shadow:0 8px 20px rgba(0,0,0,.08);
+    font-weight:600;
+    line-height:1.6;
+}
+
+.stat-box span {
+    font-size:26px;
+    font-weight:800;
+    display:block;
+}
+
+.bar {
+    height:12px;
+    background:#eee;
+    border-radius:8px;
+    overflow:hidden;
+    margin-top:6px;
+}
+
+.bar > div {
+    height:100%;
+    background:linear-gradient(135deg,#f093fb,#f5576c);
+}
 </style>
 </head>
 
@@ -124,7 +151,7 @@ button[disabled] {
 
 <div class="header">
     <h3>📧 Email Resend Dashboard</h3>
-    <a href="/logout">Đăng xuất</a>
+    <!-- <a href="/logout">Đăng xuất</a> -->
 </div>
 
 <textarea id="email" rows="4"
@@ -135,6 +162,19 @@ merchant2@gmail.com"></textarea>
 <button id="autoBtn" class="auto" onclick="autoResend()">🔥 Auto resend email mới nhất</button>
 
 <div id="result"></div>
+<h3 style="margin-top:40px;">📊 Dashboard thống kê resend</h3>
+
+<div id="dashboard" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-bottom:30px;">
+    <div class="stat-box" id="stat-total"></div>
+    <div class="stat-box" id="stat-merchant"></div>
+    <div class="stat-box" id="stat-today"></div>
+    <div class="stat-box" id="stat-top"></div>
+</div>
+
+<div class="merchant-box">
+    <h4>🔥 Top merchant resend</h4>
+    <div id="top-merchant-list"></div>
+</div>
 
 <h4 style="margin-top:35px;">📜 Lịch sử resend</h4>
 <div id="log-list"></div>
@@ -222,14 +262,14 @@ async function autoResend() {
     btn.innerText = "🔥 Auto resend email mới nhất";
     loadLogs();
 }
-
 async function loadLogs() {
     const r = await fetch("/logs");
-    const d = await r.json();
+    const logs = await r.json();
+
+    // ===== LỊCH SỬ =====
     const box = document.getElementById("log-list");
     box.innerHTML = "";
-
-    d.slice(-10).reverse().forEach(l => {
+    logs.slice(-10).reverse().forEach(l => {
         const div = document.createElement("div");
         div.className = "log-item";
         div.innerHTML = `
@@ -239,9 +279,83 @@ async function loadLogs() {
         `;
         box.appendChild(div);
     });
+
+    // ===== DASHBOARD =====
+    document.getElementById("stat-total").innerHTML = `
+        🔁 Tổng resend
+        <span>${logs.length}</span>
+    `;
+
+    const merchants = {};
+    const today = new Date().toDateString();
+    let todayCount = 0;
+
+    logs.forEach(l => {
+        merchants[l.merchant_email] = (merchants[l.merchant_email] || 0) + 1;
+        if (new Date(l.time).toDateString() === today) {
+            todayCount++;
+        }
+    });
+
+    document.getElementById("stat-merchant").innerHTML = `
+        📧 Merchant
+        <span>${Object.keys(merchants).length}</span>
+    `;
+
+    document.getElementById("stat-today").innerHTML = `
+        📨 Hôm nay
+        <span>${todayCount}</span>
+    `;
+
+    const topMerchant = Object.entries(merchants)
+        .sort((a,b)=>b[1]-a[1])[0];
+
+    document.getElementById("stat-top").innerHTML = `
+        🏆 Top merchant
+        <span>${topMerchant ? topMerchant[0] : "-"}</span>
+    `;
+
+    // ===== TOP MERCHANT LIST =====
+    const topBox = document.getElementById("top-merchant-list");
+    topBox.innerHTML = "";
+
+    Object.entries(merchants)
+        .sort((a,b)=>b[1]-a[1])
+        .slice(0,5)
+        .forEach(([email,count]) => {
+            const percent = Math.round(count / logs.length * 100);
+            const row = document.createElement("div");
+            row.style.marginBottom = "10px";
+            row.innerHTML = `
+                <strong>${email}</strong> (${count})
+                <div class="bar">
+                    <div style="width:${percent}%"></div>
+                </div>
+            `;
+            topBox.appendChild(row);
+        });
 }
 
 loadLogs();
+// async function loadLogs() {
+//     const r = await fetch("/logs");
+//     const d = await r.json();
+//     const box = document.getElementById("log-list");
+//     box.innerHTML = "";
+
+//     d.slice(-10).reverse().forEach(l => {
+//         const div = document.createElement("div");
+//         div.className = "log-item";
+//         div.innerHTML = `
+//             ⏱ ${new Date(l.time).toLocaleString()}<br>
+//             📧 ${l.merchant_email}<br>
+//             📨 ${l.subject}
+//         `;
+//         box.appendChild(div);
+//     });
+// }
+
+// loadLogs();
 </script>
 
 </body>
