@@ -140,6 +140,23 @@ button[disabled] {
     height:100%;
     background:linear-gradient(135deg,#f093fb,#f5576c);
 }
+.log-item {
+    background:#f8f9fa;
+    padding:12px;
+    border-radius:10px;
+    margin-bottom:10px;
+    box-shadow:0 4px 8px rgba(0,0,0,.05);
+}
+
+.log-new {
+    animation: flash 1.5s;
+    background:#e6fffa;
+}
+
+@keyframes flash {
+    from { background:#a7f3d0; }
+    to { background:#e6fffa; }
+}
 </style>
 </head>
 
@@ -153,7 +170,12 @@ button[disabled] {
     <h3>📧 Email Resend Dashboard</h3>
     <!-- <a href="/logout">Đăng xuất</a> -->
 </div>
-
+<div style="display:flex;justify-content:space-between;align-items:center;margin-top:30px;">
+    <h3>📊 Dashboard realtime</h3>
+    <button id="toggleRealtime" class="search-btn" onclick="toggleRealtime()">
+        ⏸ Pause realtime
+    </button>
+</div>
 <textarea id="email" rows="4"
 placeholder="merchant1@gmail.com
 merchant2@gmail.com"></textarea>
@@ -262,16 +284,67 @@ async function autoResend() {
     btn.innerText = "🔥 Auto resend email mới nhất";
     loadLogs();
 }
+let lastLogTime = null;
+let realtime = true;
+let timer = null;
+
 async function loadLogs() {
     const r = await fetch("/logs");
     const logs = await r.json();
 
-    // ===== LỊCH SỬ =====
+    if (!logs.length) return;
+
     const box = document.getElementById("log-list");
     box.innerHTML = "";
+
+    // ===== DASHBOARD =====
+    const merchants = {};
+    const today = new Date().toDateString();
+    let todayCount = 0;
+
+    logs.forEach(l => {
+        merchants[l.merchant_email] = (merchants[l.merchant_email] || 0) + 1;
+        if (new Date(l.time).toDateString() === today) todayCount++;
+    });
+
+    document.getElementById("stat-total").innerHTML =
+        `🔁 Tổng resend <span>${logs.length}</span>`;
+
+    document.getElementById("stat-merchant").innerHTML =
+        `📧 Merchant <span>${Object.keys(merchants).length}</span>`;
+
+    document.getElementById("stat-today").innerHTML =
+        `📨 Hôm nay <span>${todayCount}</span>`;
+
+    const top = Object.entries(merchants).sort((a,b)=>b[1]-a[1])[0];
+    document.getElementById("stat-top").innerHTML =
+        `🏆 Top merchant <span>${top ? top[0] : "-"}</span>`;
+
+    // ===== TOP LIST =====
+    const topBox = document.getElementById("top-merchant-list");
+    topBox.innerHTML = "";
+    Object.entries(merchants)
+        .sort((a,b)=>b[1]-a[1])
+        .slice(0,5)
+        .forEach(([email,count]) => {
+            const percent = Math.round(count / logs.length * 100);
+            topBox.innerHTML += `
+                <div style="margin-bottom:10px;">
+                    <strong>${email}</strong> (${count})
+                    <div class="bar"><div style="width:${percent}%"></div></div>
+                </div>`;
+        });
+
+    // ===== LOG HISTORY =====
     logs.slice(-10).reverse().forEach(l => {
         const div = document.createElement("div");
         div.className = "log-item";
+
+        if (!lastLogTime || new Date(l.time) > new Date(lastLogTime)) {
+            div.classList.add("log-new");
+            lastLogTime = l.time;
+        }
+
         div.innerHTML = `
             ⏱ ${new Date(l.time).toLocaleString()}<br>
             📧 ${l.merchant_email}<br>
@@ -279,71 +352,33 @@ async function loadLogs() {
         `;
         box.appendChild(div);
     });
-
-    // ===== DASHBOARD =====
-    document.getElementById("stat-total").innerHTML = `
-        🔁 Tổng resend
-        <span>${logs.length}</span>
-    `;
-
-    const merchants = {};
-    const today = new Date().toDateString();
-    let todayCount = 0;
-
-    logs.forEach(l => {
-        merchants[l.merchant_email] = (merchants[l.merchant_email] || 0) + 1;
-        if (new Date(l.time).toDateString() === today) {
-            todayCount++;
-        }
-    });
-
-    document.getElementById("stat-merchant").innerHTML = `
-        📧 Merchant
-        <span>${Object.keys(merchants).length}</span>
-    `;
-
-    document.getElementById("stat-today").innerHTML = `
-        📨 Hôm nay
-        <span>${todayCount}</span>
-    `;
-
-    const topMerchant = Object.entries(merchants)
-        .sort((a,b)=>b[1]-a[1])[0];
-
-    document.getElementById("stat-top").innerHTML = `
-        🏆 Top merchant
-        <span>${topMerchant ? topMerchant[0] : "-"}</span>
-    `;
-
-    // ===== TOP MERCHANT LIST =====
-    const topBox = document.getElementById("top-merchant-list");
-    topBox.innerHTML = "";
-
-    Object.entries(merchants)
-        .sort((a,b)=>b[1]-a[1])
-        .slice(0,5)
-        .forEach(([email,count]) => {
-            const percent = Math.round(count / logs.length * 100);
-            const row = document.createElement("div");
-            row.style.marginBottom = "10px";
-            row.innerHTML = `
-                <strong>${email}</strong> (${count})
-                <div class="bar">
-                    <div style="width:${percent}%"></div>
-                </div>
-            `;
-            topBox.appendChild(row);
-        });
 }
 
+// ===== REALTIME LOOP =====
+function startRealtime() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(() => {
+        if (realtime) loadLogs();
+    }, 10000); // ⏱ 10 giây
+}
+
+function toggleRealtime() {
+    realtime = !realtime;
+    document.getElementById("toggleRealtime").innerText =
+        realtime ? "⏸ Pause realtime" : "▶ Resume realtime";
+}
+
+// INIT
 loadLogs();
+startRealtime();
 // async function loadLogs() {
 //     const r = await fetch("/logs");
-//     const d = await r.json();
+//     const logs = await r.json();
+
+//     // ===== LỊCH SỬ =====
 //     const box = document.getElementById("log-list");
 //     box.innerHTML = "";
-
-//     d.slice(-10).reverse().forEach(l => {
+//     logs.slice(-10).reverse().forEach(l => {
 //         const div = document.createElement("div");
 //         div.className = "log-item";
 //         div.innerHTML = `
@@ -353,6 +388,61 @@ loadLogs();
 //         `;
 //         box.appendChild(div);
 //     });
+
+//     // ===== DASHBOARD =====
+//     document.getElementById("stat-total").innerHTML = `
+//         🔁 Tổng resend
+//         <span>${logs.length}</span>
+//     `;
+
+//     const merchants = {};
+//     const today = new Date().toDateString();
+//     let todayCount = 0;
+
+//     logs.forEach(l => {
+//         merchants[l.merchant_email] = (merchants[l.merchant_email] || 0) + 1;
+//         if (new Date(l.time).toDateString() === today) {
+//             todayCount++;
+//         }
+//     });
+
+//     document.getElementById("stat-merchant").innerHTML = `
+//         📧 Merchant
+//         <span>${Object.keys(merchants).length}</span>
+//     `;
+
+//     document.getElementById("stat-today").innerHTML = `
+//         📨 Hôm nay
+//         <span>${todayCount}</span>
+//     `;
+
+//     const topMerchant = Object.entries(merchants)
+//         .sort((a,b)=>b[1]-a[1])[0];
+
+//     document.getElementById("stat-top").innerHTML = `
+//         🏆 Top merchant
+//         <span>${topMerchant ? topMerchant[0] : "-"}</span>
+//     `;
+
+//     // ===== TOP MERCHANT LIST =====
+//     const topBox = document.getElementById("top-merchant-list");
+//     topBox.innerHTML = "";
+
+//     Object.entries(merchants)
+//         .sort((a,b)=>b[1]-a[1])
+//         .slice(0,5)
+//         .forEach(([email,count]) => {
+//             const percent = Math.round(count / logs.length * 100);
+//             const row = document.createElement("div");
+//             row.style.marginBottom = "10px";
+//             row.innerHTML = `
+//                 <strong>${email}</strong> (${count})
+//                 <div class="bar">
+//                     <div style="width:${percent}%"></div>
+//                 </div>
+//             `;
+//             topBox.appendChild(row);
+//         });
 // }
 
 // loadLogs();
