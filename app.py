@@ -29,7 +29,7 @@ LOG_FILE = "resend_logs.json"
 ALERT_EVERY_RESEND = os.getenv("ALERT_EVERY_RESEND", "false").lower() == "true"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-log_print("ALERT_EVERY_RESEND =", ALERT_EVERY_RESEND)
+# log_print("ALERT_EVERY_RESEND =", ALERT_EVERY_RESEND)
 
 ALERT_LIMIT = int(os.getenv("ALERT_RESEND_LIMIT", 5))
 ALERT_WINDOW = int(os.getenv("ALERT_WINDOW_MINUTES", 10))
